@@ -142,10 +142,12 @@ class SimpleNet:
 
         if self.classification:
             # for classification
-            d_final = forward_pass[-1] - truth
-            d_hidden = np.dot(self.theta_final, d_final.T) * self.__activate(np.concatenate(([1],forward_pass[1])), True)
-            delta_final = np.dot(d_final.T, forward_pass[2])
-            delta_hidden = d_hidden[1:]*forward_pass[0]
+            d_final = (forward_pass[-1] - truth).reshape((1, self.output))
+            dz1 = self.__activate(np.concatenate(([1],forward_pass[1])), True).reshape((self.hidden + 1, 1))
+            d_hidden = np.multiply( np.dot(self.theta_final, d_final.T), dz1 ).T
+            a1 = forward_pass[2].reshape((self.hidden+1, 1))
+            delta_final = np.dot(a1, d_final)
+            delta_hidden = np.dot(forward_pass[0].reshape(self.input + 1, 1), d_hidden[:,1:])
         else:
             # implement regression gradient
             pass
@@ -161,13 +163,14 @@ class SimpleNet:
         # start the outer iteration over the whole sample
         for iter in xrange(iterations):
             # shuffle sample
-            shuffle = np.random.shuffle(range(len(X)))
-            shuffledX = X[shuffle]
-            shuffledy = y[shuffle]
+            indices = range(len(X))
+            np.random.shuffle(indices)
+            shuffledX = X[indices]
+            shuffledy = y[indices]
             # start inner loop within the sample
             for k, sample in enumerate(shuffledX):
                 # get prediction
-                yhat = self.__forward(obs)
+                yhat = self.__forward(sample)
                 # calculate cost
                 self.costs.extend([self.__loss(shuffledy[k], yhat[-1])])
                 # compute gradients
@@ -176,16 +179,44 @@ class SimpleNet:
                 self.theta_final -= self.alpha * gradients[1]
                 self.theta_hidden -= self.alpha * gradients[0]
 
+    # Vectorize the label vector
+    def __vectorize(self, y):
+        if self.output == 1:
+            return y
+        else:
+            yvec = np.zeros((len(y),self.output))
+            for i in xrange(len(y)):
+                yvec[i, y[i]] = 1
+            return yvec
+
     # Train function
     def train(self, X, y, iterations = 100):
+        # TODO: check X and Y are valid arrays
+        # vectorize y if there are more classes
+        y = self.__vectorize(y)
+        self.__descent(X, y, iterations)
+        print("Neural network trained")
 
+    # Update function
+    def update(self, x, y):
+        pass
 
     # Predict function
+    def predict(self, X):
+        pass
 
     # Evaluate function
+    def evaluate(self, X, y, method = 'f1'):
+        pass
 
     # Cross validate function
+    def cross_val(self, X, y, fraction = 0.7, folds = 1, method = 'f1'):
+        pass
 
     # To JSON function
+    def to_json(self, filename):
+        pass
 
     # From JSON function
+    def from_json(self, filename):
+        pass
