@@ -199,18 +199,38 @@ class SimpleNet:
 
     # Update function
     def update(self, x, y):
-        pass
+        # vectorize y
+        y = self.__vectorize(y)
+        # run forward pass
+        forward = self.__forward(x)
+        # get gradients
+        gradients = self.__backprop(y, forward)
+        # update parameters
+        self.theta_final -= self.alpha * gradients[1]
+        self.theta_hidden -= self.alpha * gradients[0]
 
     # Predict function
     def predict(self, X):
-        pass
+        Yhat = np.zeros(len(X))
+        # for each observation, run forward pass and get prediction
+        for s, sample in enumerate(X):
+            forward = self.__forward(sample)
+            yhat = forward[-1]
+            # unravel vectorized output if classification
+            if self.output >= 2:
+                yhat = np.argmax(yhat)
+            elif self.classification:
+                yhat = np.int(yhat[0] > 0.5)
+            # update prediction vector
+            Yhat[s] = yhat
+        return Yhat
 
     # Evaluate function
-    def evaluate(self, X, y, method = 'f1'):
+    def evaluate(self, X, y):
         pass
 
     # Cross validate function
-    def cross_val(self, X, y, fraction = 0.7, folds = 1, method = 'f1'):
+    def cross_val(self, X, y, fraction = 0.7, folds = 1):
         pass
 
     # To JSON function

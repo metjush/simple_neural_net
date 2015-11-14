@@ -12,8 +12,8 @@ net = SimpleNet(X.shape[1], X.shape[1]+5, 3)
 
 net.train(X, y, iterations=10)
 
-print(net.theta_hidden)
-print(net.theta_final)
+pred = net.predict(X)
+print(pred)
 
 import matplotlib.pyplot as plt
 plt.plot(net.costs)
