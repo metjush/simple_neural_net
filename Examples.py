@@ -8,12 +8,14 @@ data = load_iris()
 X = data.data
 y = data.target
 
-net = SimpleNet(X.shape[1], X.shape[1]+5, 3)
+net = SimpleNet(X.shape[1], X.shape[1]+10, 3)
 
-net.train(X, y, iterations=10)
+net.train(X, y, iterations=100)
 
 pred = net.predict(X)
 print(pred)
+evals = net.evaluate(X, y)
+print(evals)
 
 import matplotlib.pyplot as plt
 plt.plot(net.costs)

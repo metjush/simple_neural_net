@@ -225,9 +225,53 @@ class SimpleNet:
             Yhat[s] = yhat
         return Yhat
 
-    # Evaluate function
-    def evaluate(self, X, y):
+    # F1 score
+    def __f1(self, truth, yhat, recourse = False):
+        # check if this is a binary problem or a multiclass problem
+        accurate = truth == yhat
+        if self.output == 1 or recourse:
+            # binary f1
+            positive = np.sum(truth == 1)
+            hat_positive = np.sum(yhat == 1)
+            tp = np.sum(yhat[accurate] == 1)
+            recall = 1.*tp/positive if positive > 0 else 0.
+            precision = 1.*tp/hat_positive if hat_positive > 0 else 0.
+            f1 = (2.*precision*recall)/(precision+recall) if (precision+recall) > 0 else 0.
+            return f1
+        else:
+            # iterate over all classes and return weighted average of individual F1 scores
+            # weighting is based on true instances of class
+            f1 = 0
+            for label in xrange(self.output):
+                # create binary vectors to pass to self recursively
+                truth_binary = np.copy(truth)
+                truth_binary[truth == label] = 1
+                truth_binary[truth != label] = 0
+
+                yhat_binary = np.copy(yhat)
+                yhat_binary[yhat == label] = 1
+                yhat_binary[yhat != label] = 0
+
+                f1 += np.sum(truth == label) * self.__f1(truth_binary, yhat_binary, True)
+            return f1 / len(yhat)
         pass
+
+    # RMSE for a vector
+    def __RMSE(self, truth, yhat):
+        # calculate error
+        error = yhat - truth
+        # square and root
+        return np.sqrt(np.dot(error.T, error))
+
+    # Evaluate function
+    # For classification problems, calculate the F1 score
+    # For regression problems, calculate root mean squared error
+    def evaluate(self, X, y):
+        Yhat = self.predict(X)
+        if self.classification:
+            return self.__f1(y, Yhat)
+        else:
+            return self.__RMSE(y, Yhat)
 
     # Cross validate function
     def cross_val(self, X, y, fraction = 0.7, folds = 1):
