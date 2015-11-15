@@ -27,14 +27,18 @@ class SimpleNet:
         # Activation and goal
         self.activation = activation
         self.classification = goal == 'classification'
-        # Cost array to plot
-        self.costs = []
 
         # Create weight matrices
+        self.__rand_init()
 
-        # Adding + 1 for bias units
-        self.theta_hidden = 2*np.random.rand(inputs + 1, hidden) - 1
-        self.theta_final = 2*np.random.rand(hidden + 1, outputs) - 1
+    # Initialize weights
+    # Separated as a function for untraining the net for cross_validation
+    def __rand_init(self):
+        # Reset costs
+        self.costs = []
+        # Don't forget to add one parameter for bias units
+        self.theta_hidden = 2*np.random.rand(self.input + 1, self.hidden) - 1
+        self.theta_final = 2*np.random.rand(self.hidden + 1, self.output) - 1
 
     # Define activation functions
     # All are implemented such that they can also return their derivatives
@@ -226,7 +230,7 @@ class SimpleNet:
         return Yhat
 
     # F1 score
-    def __f1(self, truth, yhat, recourse = False):
+    def __f1(self, truth, yhat, recourse=False):
         # check if this is a binary problem or a multiclass problem
         accurate = truth == yhat
         if self.output == 1 or recourse:
@@ -257,7 +261,7 @@ class SimpleNet:
         pass
 
     # RMSE for a vector
-    def __RMSE(self, truth, yhat):
+    def __rmse(self, truth, yhat):
         # calculate error
         error = yhat - truth
         # square and root
@@ -271,10 +275,28 @@ class SimpleNet:
         if self.classification:
             return self.__f1(y, Yhat)
         else:
-            return self.__RMSE(y, Yhat)
+            return self.__rmse(y, Yhat)
 
     # Cross validate function
-    def cross_val(self, X, y, fraction = 0.7, folds = 1):
+    def cross_val(self, X, y, iterations=100, fraction=0.7, folds=1):
+        indices = np.arange(len(X))
+        set_ind = set(indices)
+        size = np.int(len(X)*(1-fraction))
+        scores = np.zeros(folds)
+        for f in xrange(folds):
+            train = np.random.choice(indices, size, replace=False)
+            set_train = set(train)
+            set_test = list(set_ind.difference(set_train))
+            Xtrain = X[train, :]
+            ytrain = y[train]
+            Xtest = X[set_test, :]
+            ytest = y[set_test]
+            self.train(Xtrain, ytrain, iterations)
+            scores[f] = self.evaluate(Xtest, ytest)
+            self.__rand_init()
+            print(scores[f])
+        return scores
+
         pass
 
     # To JSON function

@@ -20,3 +20,8 @@ print(evals)
 import matplotlib.pyplot as plt
 plt.plot(net.costs)
 plt.show()
+
+scores = net.cross_val(X, y, 100, 0.6, 5)
+print(scores)
+
+
