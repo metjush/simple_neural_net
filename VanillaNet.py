@@ -300,7 +300,7 @@ class VanillaNet:
         # calculate error
         error = yhat - truth
         # square and root
-        return np.sqrt(np.dot(error.T, error))
+        return np.sqrt(np.dot(error.T, error)) / len(yhat)
 
     # Evaluate function
     # For classification problems, calculate the F1 score
