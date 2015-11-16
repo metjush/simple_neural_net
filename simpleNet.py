@@ -9,9 +9,9 @@ __author__ = "metjush"
 import numpy as np
 
 
-class SimpleNet:
+class VanillaNet:
 
-    def __init__(self, inputs, hidden, outputs, activation = 'softmax', goal = 'classification', alpha = 0.01, regular = 0.1):
+    def __init__(self, inputs, hidden, outputs, activation='softplus', goal='classification', alpha=0.01, regular=0.1):
         # Initialize properties of the net
 
         # Dimensions
@@ -37,44 +37,65 @@ class SimpleNet:
         # Reset costs
         self.costs = []
         # Don't forget to add one parameter for bias units
-        self.theta_hidden = 2*np.random.rand(self.input + 1, self.hidden) - 1
-        self.theta_final = 2*np.random.rand(self.hidden + 1, self.output) - 1
+        self.theta_hidden = 2.*np.random.rand(self.input + 1, self.hidden) - 1.
+        self.theta_final = 2.*np.random.rand(self.hidden + 1, self.output) - 1.
 
     # Define activation functions
     # All are implemented such that they can also return their derivatives
 
     # Sigmoid activation function (logistic)
-    def __sigmoid(self, x, dx = False):
+    def __sigmoid(self, x, dx=False):
         if dx:
-            return self.__sigmoid(x, False) * (1 - self.__sigmoid(x, False))
+            return self.__sigmoid(x, False) * (1. - self.__sigmoid(x, False))
         else:
-            return 1 / (1 + np.exp(-x))
+            return 1. / (1. + np.exp(-x))
 
-    # Softmax (ReLU) activation function
-    def __softmax(self, x, dx = False):
+    # ReLU activation function
+    def __relu(self, x, dx=False):
         if dx:
-            return self.__sigmoid(x, False)
+            dfdx = np.copy(x)
+            dfdx[x > 0] = 1.
+            dfdx[x <= 0] = 0.
+            return dfdx
         else:
-            return np.log(1 + np.exp(x))
+            return np.maximum(x, np.zeros_like(x))
+
+    # Softplus activation
+    def __softplus(self, x, dx=False):
+        if dx:
+            return self.__sigmoid(x)
+        else:
+            return np.log(1. + np.exp(x))
 
     # Hyperbolic tangent activation function
-    def __tanh(self, x, dx = False):
+    def __tanh(self, x, dx=False):
         if dx:
-            return 1 - np.tanh(x)**2
+            return 1. - np.tanh(x)**2
         else:
-            return np.tanh(z)
+            return np.tanh(x)
+
+    #Linear activation
+    def __linear(self, x, dx=False):
+        if dx:
+            return np.ones_like(x)
+        else:
+            return x
 
     # General activation function wrapper
-    def __activate(self, x, dx = False, method = 'softmax'):
-        if method == 'softmax':
-            return self.__softmax(x, dx)
+    def __activate(self, x, dx=False, method='softplus'):
+        if method == 'softplus':
+            return self.__softplus(x, dx)
+        elif method == 'relu':
+            return self.__relu(x, dx)
         elif method == 'tanh':
             return self.__tanh(x, dx)
         elif method == 'sigmoid':
             return self.__sigmoid(x, dx)
+        elif method == 'linear':
+            return self.__linear(x, dx)
         else:
             # Default to softmax if invalid argument is passed
-            return self.__softmax(x, dx)
+            return self.__softplus(x, dx)
 
     # Feed forward through the network
     def __forward(self, x):
@@ -100,9 +121,9 @@ class SimpleNet:
         # substitute bias coefficients for zeros
         # as bias weights are not regularized by convention
         theta10 = self.theta_hidden[:]
-        theta10[:,0] = 0
+        theta10[:,0] = 0.
         theta20 = self.theta_final[:]
-        theta20[:,0] = 0
+        theta20[:,0] = 0.
         # compute regularization cost
         if not gradient:
             return (self.regularization/(2.*self.input)) * (np.sum(np.multiply(theta10,theta10)) + np.sum(np.multiply(theta20,theta20)))
@@ -141,24 +162,20 @@ class SimpleNet:
         # initialize deltas
         delta_final = np.zeros_like(self.theta_final)
         delta_hidden = np.zeros_like(self.theta_hidden)
+
         # get regularizations
         regulars = self.__regularization_cost(True)
 
-        if self.classification:
-            # for classification
-            d_final = (forward_pass[-1] - truth).reshape((1, self.output))
-            dz1 = self.__activate(np.concatenate(([1],forward_pass[1])), True).reshape((self.hidden + 1, 1))
-            d_hidden = np.multiply( np.dot(self.theta_final, d_final.T), dz1 ).T
-            a1 = forward_pass[2].reshape((self.hidden+1, 1))
-            delta_final = np.dot(a1, d_final)
-            delta_hidden = np.dot(forward_pass[0].reshape(self.input + 1, 1), d_hidden[:,1:])
-        else:
-            # implement regression gradient
-            pass
+        d_final = (forward_pass[-1] - truth).reshape((1, self.output))
+        dz1 = self.__activate(np.concatenate(([1],forward_pass[1])), True).reshape((self.hidden + 1, 1))
+        d_hidden = np.multiply( np.dot(self.theta_final, d_final.T), dz1 ).T
+        a1 = forward_pass[2].reshape((self.hidden+1, 1))
+        delta_final = np.dot(a1, d_final)
+        delta_hidden = np.dot(forward_pass[0].reshape(self.input + 1, 1), d_hidden[:,1:])
 
         # add regularization
-        delta_final += regulars[1]
         delta_hidden += regulars[0]
+        delta_final += regulars[1]
 
         return [delta_hidden, delta_final]
 
@@ -193,11 +210,16 @@ class SimpleNet:
                 yvec[i, y[i]] = 1
             return yvec
 
+    def __feature_scale(self, X):
+        return (X - np.mean(X, axis=0)) / np.std(X, axis=0)
+
     # Train function
     def train(self, X, y, iterations = 100):
         # TODO: check X and Y are valid arrays
         # vectorize y if there are more classes
         y = self.__vectorize(y)
+        # scale features
+        X = self.__feature_scale(X)
         self.__descent(X, y, iterations)
         print("Neural network trained")
 
@@ -217,6 +239,7 @@ class SimpleNet:
     def predict(self, X):
         Yhat = np.zeros(len(X))
         # for each observation, run forward pass and get prediction
+        X = self.__feature_scale(X)
         for s, sample in enumerate(X):
             forward = self.__forward(sample)
             yhat = forward[-1]
@@ -296,8 +319,6 @@ class SimpleNet:
             self.__rand_init()
             print(scores[f])
         return scores
-
-        pass
 
     # To JSON function
     def to_json(self, filename):
