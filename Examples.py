@@ -2,7 +2,7 @@ __author__ = 'metjush'
 
 import numpy as np
 from sklearn.datasets import load_iris
-from simpleNet import VanillaNet
+from VanillaNet import VanillaNet
 
 # classification test
 
