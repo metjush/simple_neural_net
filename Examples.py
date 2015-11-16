@@ -26,8 +26,8 @@ plt.plot(net.costs)
 plt.show()
 
 
-#scores = net.cross_val(X, y, 100, 0.6, 5)
-#print(scores)
+scores = net.cross_val(X, y, 100, 0.6, 5)
+print(scores)
 
 
 
@@ -38,7 +38,7 @@ boston = load_boston()
 X2 = boston.data
 y2 = boston.target
 
-regnet = VanillaNet(X2.shape[1], X2.shape[1]+5, 1, alpha=0.01, goal="regression")
+regnet = VanillaNet(X2.shape[1], X2.shape[1]+5, 1, alpha=0.001, activation='relu', goal="regression")
 regnet.train(X2, y2, iterations=500)
 
 yhat = regnet.predict(X2)
@@ -47,3 +47,6 @@ evals = regnet.evaluate(X2,y2)
 print(evals)
 print(y2)
 
+import matplotlib.pyplot as plt
+plt.plot(regnet.costs)
+plt.show()

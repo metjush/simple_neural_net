@@ -11,7 +11,7 @@ import numpy as np
 
 class VanillaNet:
 
-    def __init__(self, inputs, hidden, outputs, activation='softplus', goal='classification', alpha=0.01, regular=0.1):
+    def __init__(self, inputs, hidden, outputs, activation='relu', goal='classification', alpha=0.01, regular=0.1):
         # Initialize properties of the net
 
         # Dimensions
@@ -48,12 +48,17 @@ class VanillaNet:
         if dx:
             return self.__sigmoid(x, False) * (1. - self.__sigmoid(x, False))
         else:
-            return 1. / (1. + np.exp(-x))
+            out = np.empty_like(x)
+            idx = x>0
+            out[idx] = 1. / (1. + np.exp(-x[idx]))
+            invexp = np.exp(x[~idx])
+            out[~idx] = invexp / (1. + invexp)
+            return out
 
     # ReLU activation function
     def __relu(self, x, dx=False):
         if dx:
-            dfdx = np.copy(x)
+            dfdx = np.zeros_like(x)
             dfdx[x > 0] = 1.
             dfdx[x <= 0] = 0.
             return dfdx
@@ -95,7 +100,7 @@ class VanillaNet:
             return self.__linear(x, dx)
         else:
             # Default to softmax if invalid argument is passed
-            return self.__softplus(x, dx)
+            return self.__relu(x, dx)
 
     # Feed forward through the network
     def __forward(self, x):
@@ -120,10 +125,10 @@ class VanillaNet:
     def __regularization_cost(self, gradient=False):
         # substitute bias coefficients for zeros
         # as bias weights are not regularized by convention
-        theta10 = self.theta_hidden[:]
+        theta10 = np.copy(self.theta_hidden)
         theta10[:,0] = 0.
-        theta20 = self.theta_final[:]
-        theta20[:,0] = 0.
+        theta20 = np.copy(self.theta_final)
+        theta20[0,:] = 0.
         # compute regularization cost
         if not gradient:
             return (self.regularization/(2.*self.input)) * (np.sum(np.multiply(theta10,theta10)) + np.sum(np.multiply(theta20,theta20)))
@@ -194,6 +199,13 @@ class VanillaNet:
                 yhat = self.__forward(sample)
                 # calculate cost
                 self.costs.extend([self.__loss(shuffledy[k], yhat[-1])])
+                # check if costs aren't exploding
+                if k > 2 and k % 3 == 0:
+                    cost_diff = np.log10(self.costs[-1]/self.costs[-2])
+                    if cost_diff > 2:
+                        print("Gradient possibly exploding, try lowering learning rate")
+                    if cost_diff > 3:
+                        raise OverflowError("Gradient Exploding, Lower Learning Rate From %f To %f" % (self.alpha, self.alpha * 0.1))
                 # compute gradients
                 gradients = self.__backprop(shuffledy[k], yhat)
                 # update weights
