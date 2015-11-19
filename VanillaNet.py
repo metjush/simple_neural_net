@@ -7,16 +7,20 @@ __author__ = "metjush"
 # The network is trained with stochastic gradient descent.
 
 import numpy as np
+import warnings
 
+warnings.filterwarnings('error')
 
 class VanillaNet:
 
-    def __init__(self, inputs, hidden, outputs, activation='relu', goal='classification', alpha=0.01, regular=0.1):
+    def __init__(self, inputs, hidden, outputs, activation='relu', goal='classification', alpha=0.01, regular=0.1, batch=None):
         # Initialize properties of the net
 
         # Dimensions
         self.input = inputs
         self.hidden = hidden
+        self.samples = 0
+        self.batch_size = 1
         # Check the number of classes:
         # If the number of classes is 2, it's binary classification,
         # so we only need one output neuron
@@ -27,6 +31,9 @@ class VanillaNet:
         # Activation and goal
         self.activation = activation
         self.classification = goal == 'classification'
+        # Whether this is batch or stochastic
+        self.batch = batch
+
 
         # Create weight matrices
         self.__rand_init()
@@ -39,6 +46,9 @@ class VanillaNet:
         # Don't forget to add one parameter for bias units
         self.theta_hidden = 2.*np.random.rand(self.input + 1, self.hidden) - 1.
         self.theta_final = 2.*np.random.rand(self.hidden + 1, self.output) - 1.
+         # initialize deltas
+        self.delta_final = np.zeros_like(self.theta_final)
+        self.delta_hidden = np.zeros_like(self.theta_hidden)
 
     # Define activation functions
     # All are implemented such that they can also return their derivatives
@@ -104,15 +114,19 @@ class VanillaNet:
 
     # Feed forward through the network
     def __forward(self, x):
-        # x is a single observation vector
+        d = len(x.shape)
+        ax = 1
+        if d == 1:
+            x = x.reshape(1, len(x))
+        m = x.shape[0]
         # Add bias unit to x
-        z0 = np.concatenate(([1], x))
+        z0 = np.concatenate((np.ones((m,1)), x), axis=ax)
         # Pass signal to the hidden layer
         z1 = np.dot(z0, self.theta_hidden)
         # Activate the hidden neurons
         a1 = self.__activate(z1, False, self.activation)
         # Add bias unit to the activations
-        a1 = np.concatenate(([1], a1))
+        a1 = np.concatenate((np.ones((a1.shape[0],1)), a1), axis=ax)
         # Pass signal to the output layer
         z2 = np.dot(a1, self.theta_final)
         # Depending on whether the goal is classification or regression
@@ -131,20 +145,23 @@ class VanillaNet:
         theta20[0,:] = 0.
         # compute regularization cost
         if not gradient:
-            return (self.regularization/(2.*self.input)) * (np.sum(np.multiply(theta10,theta10)) + np.sum(np.multiply(theta20,theta20)))
+            return (self.regularization/(2.*self.samples)) * (np.sum(np.multiply(theta10,theta10)) + np.sum(np.multiply(theta20,theta20)))
         else:
-            return [(self.regularization/self.input) * theta10, (self.regularization/self.input) * theta20]
+            return [(self.regularization/self.samples) * theta10, (self.regularization/self.samples) * theta20]
 
     # Classification log loss
     def __log_loss(self, truth, yhat):
         # Initiate cost at 0
         J = 0
+        truth = truth.reshape(yhat.shape)
         # For each class, calculate log loss and sum
         if self.output == 1:
             J -= truth*np.log(yhat) + (1-truth)*np.log(1-yhat)
         else:
             for c in xrange(self.output):
-                J -= truth[c] * np.log(yhat[c])
+                J -= truth[:,c] * np.log(yhat[:,c]+0.00000000000001)
+        J = np.sum(J)
+        J /= 2.*len(yhat)
         # Add regularization
         J += self.__regularization_cost()
         return J
@@ -152,8 +169,9 @@ class VanillaNet:
     # Regression Root squared mean error
     def __square_loss(self, truth, yhat):
         # calculate error
-        error = yhat - truth
-        return np.sqrt(error**2) + self.__regularization_cost()
+        error = yhat - truth.reshape(yhat.shape)
+        loss = np.sqrt(np.dot(error.T, error))/(2.*self.batch_size)
+        return loss + self.__regularization_cost()
 
     # Wrapper for loss
     def __loss(self, truth, yhat):
@@ -163,54 +181,123 @@ class VanillaNet:
             return self.__square_loss(truth, yhat)
 
     # Backwards propagation back
-    def __backprop(self, truth, forward_pass):
+
+    def __gradients(self, truth, forward_pass):
+        # compute individual gradients
+        d_final = (forward_pass[-1] - truth).reshape((1, self.output))
+        dz1 = self.__activate(np.concatenate(([[1]],forward_pass[1].T)), True)
+        d_hidden = np.multiply( np.dot(self.theta_final, d_final.T), dz1 ).T
+        a1 = forward_pass[2].reshape((self.hidden+1, 1))
+
+        # return individual gradients to add to the total gradient function
+        return np.dot(forward_pass[0].reshape(self.input + 1, 1), d_hidden[:,1:]), np.dot(a1, d_final)
+
+    def __backprop(self):
         # initialize deltas
-        delta_final = np.zeros_like(self.theta_final)
-        delta_hidden = np.zeros_like(self.theta_hidden)
+        self.delta_final = np.zeros_like(self.theta_final)
+        self.delta_hidden = np.zeros_like(self.theta_hidden)
 
         # get regularizations
         regulars = self.__regularization_cost(True)
 
-        d_final = (forward_pass[-1] - truth).reshape((1, self.output))
-        dz1 = self.__activate(np.concatenate(([1],forward_pass[1])), True).reshape((self.hidden + 1, 1))
-        d_hidden = np.multiply( np.dot(self.theta_final, d_final.T), dz1 ).T
-        a1 = forward_pass[2].reshape((self.hidden+1, 1))
-        delta_final = np.dot(a1, d_final)
-        delta_hidden = np.dot(forward_pass[0].reshape(self.input + 1, 1), d_hidden[:,1:])
+        # add regularizatio
+        self.delta_hidden += regulars[0]
+        self.delta_final += regulars[1]
 
-        # add regularization
-        delta_hidden += regulars[0]
-        delta_final += regulars[1]
-
-        return [delta_hidden, delta_final]
+    def __cost_check(self):
+        cost_diff = np.log10(self.costs[-1]/self.costs[-2])
+        #if cost_diff > 2:
+        #    print("Gradient possibly exploding, try lowering learning rate")
+        if cost_diff > 4:
+            raise OverflowError("Gradient Exploding, Lower Learning Rate From %f To %f" % (self.alpha, self.alpha * 0.1))
 
     # Stochastic descent function
-    def __descent(self, X, y, iterations):
+    def __stochastic_descent(self, X, y, iterations):
         # start the outer iteration over the whole sample
+        indices = range(len(X))
         for iter in xrange(iterations):
             # shuffle sample
-            indices = range(len(X))
             np.random.shuffle(indices)
             shuffledX = X[indices]
             shuffledy = y[indices]
             # start inner loop within the sample
             for k, sample in enumerate(shuffledX):
+                self.batch_size = 1
                 # get prediction
                 yhat = self.__forward(sample)
                 # calculate cost
                 self.costs.extend([self.__loss(shuffledy[k], yhat[-1])])
                 # check if costs aren't exploding
                 if k > 2 and k % 3 == 0:
-                    cost_diff = np.log10(self.costs[-1]/self.costs[-2])
-                    if cost_diff > 2:
-                        print("Gradient possibly exploding, try lowering learning rate")
-                    if cost_diff > 3:
-                        raise OverflowError("Gradient Exploding, Lower Learning Rate From %f To %f" % (self.alpha, self.alpha * 0.1))
+                    self.__cost_check()
+                # initialize gradients with regularization costs
+                self.__backprop()
                 # compute gradients
-                gradients = self.__backprop(shuffledy[k], yhat)
+                gradient_hidden, gradient_final = self.__gradients(shuffledy[k], yhat)
+                self.delta_final += gradient_final
+                self.delta_hidden += gradient_hidden
                 # update weights
-                self.theta_final -= self.alpha * gradients[1]
-                self.theta_hidden -= self.alpha * gradients[0]
+                self.theta_final -= self.alpha * self.delta_final
+                self.theta_hidden -= self.alpha * self.delta_hidden
+
+    # Batch gradient descent
+    # batch size determines the size of the batch to be passed into forward/backward prop
+    # it is expressed in percentage terms, defaults to 100% (1.0)
+    def __batch_descent(self, X, y, iterations, batch_frac = 1.):
+        indices = range(len(X))
+        batch_size = int(len(X)*batch_frac)
+        n_batches = int(1/batch_frac)
+
+        for iter in xrange(iterations):
+            if batch_frac < 1.:
+                # shuffle observations
+                np.random.shuffle(indices)
+                shuffledX = X[indices]
+                shuffledy = y[indices]
+                for b in xrange(n_batches):
+                    # get the bth batch of the sample
+                    Xb = shuffledX[b*batch_size:(b+1)*batch_size]
+                    yb = shuffledy[b*batch_size:(b+1)*batch_size]
+                    self.batch_size = Xb.shape[0]
+                    # forward pass
+                    yhatb = self.__forward(Xb)
+                    # costs
+                    self.costs.extend([self.__loss(yb, yhatb[-1])])
+                    # check costs
+                    if b > 2 and b % 3 == 0:
+                        self.__cost_check()
+                    # compute gradients
+                    self.__backprop()
+                    # add up gradients
+                    for i in xrange(len(Xb)):
+                        yhat = self.__forward(Xb[i,:])
+                        g0,g1 = self.__gradients(yb[i], yhat)
+                        self.delta_hidden += g0
+                        self.delta_final += g1
+                    # update parameters
+                    self.theta_final -= self.alpha * self.delta_final
+                    self.theta_hidden -= self.alpha * self.delta_hidden
+            else:
+                self.batch_size = X.shape[0]
+                # forward pass
+                yhat = self.__forward(X)
+                # cost
+                self.costs.extend([self.__loss(y, yhat[-1])])
+                # check costs
+                if iter > 2 and iter % 3 == 0:
+                    self.__cost_check()
+                # compute gradients
+                self.__backprop()
+                # add up gradients
+                for i in xrange(len(X)):
+                    yhat0 = self.__forward(X[i,:])
+                    g0,g1 = self.__gradients(y[i], yhat0)
+                    self.delta_hidden += g0
+                    self.delta_final += g1
+                # update parameters
+                self.theta_final -= self.alpha * self.delta_final
+                self.theta_hidden -= self.alpha * self.delta_hidden
+
 
     # Vectorize the label vector
     def __vectorize(self, y):
@@ -228,12 +315,19 @@ class VanillaNet:
     # Train function
     def train(self, X, y, iterations = 100):
         # TODO: check X and Y are valid arrays
+        # set sample size
+        self.samples = len(X)
         # vectorize y if there are more classes
         y = self.__vectorize(y)
         # scale features
         X = self.__feature_scale(X)
-        self.__descent(X, y, iterations)
+        if self.batch is None:
+            self.__stochastic_descent(X, y, iterations)
+        else:
+            self.__batch_descent(X, y, iterations, self.batch)
         print("Neural network trained")
+        # flatten costs so that they can be plotted
+        self.costs = np.array(self.costs).flatten()
 
     # Update function
     def update(self, x, y):
